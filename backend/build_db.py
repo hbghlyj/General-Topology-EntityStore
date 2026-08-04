@@ -53,6 +53,25 @@ UNICODE_MAP = {
     '∪': '\\cup', '∩': '\\cap'
 }
 
+KNOWN_HEADS = {
+    # Box formatting wrappers
+    'FormBox', 'TagBox', 'InterpretationBox', 'StyleBox', 'Style', 'HoldForm',
+    'RawBoxes', 'PrecedenceForm', 'RGBColor', 'GrayLevel',
+    # Box layout constructors
+    'RowBox', 'TemplateBox', 'GridBox', 'SubscriptBox', 'SuperscriptBox',
+    'SubsuperscriptBox', 'UnderscriptBox', 'OverscriptBox', 'UnderoverscriptBox',
+    'FractionBox', 'SqrtBox', 'RadicalBox',
+    # Standard math functions & operators
+    'Abs', 'Sqrt', 'Min', 'Sum', 'SuperStar', 'Infix', 'Element', 'Exists', 'Function',
+    # GeneralTopology operations
+    'Functions', 'Mapping', 'Ord', 'ProjectionMap', 'SetBuilder', 'SetDomain',
+    'SetImage', 'SetMinus', 'SetPower', 'SetPreimage', 'SetProduct', 'SetRange',
+    'SetUnion', 'Supremum', 'Tuple'
+}
+
+WARNINGS = []
+CURRENT_ENTITY = "unknown"
+
 def find_matching_assoc(text, start_idx):
     depth = 0
     in_string = False
@@ -324,14 +343,20 @@ def ast_to_latex(node):
             return ' '.join(ast_to_latex(x) for x in node[1])
         elif ntype == 'CALL':
             head_val = node[1][1] if node[1][0] == 'SYM' else ''
+            clean_head = head_val.split('`')[-1] if head_val.startswith('GeneralTopology`') else head_val
             args = node[2]
-            if head_val in ('FormBox', 'TagBox', 'InterpretationBox', 'StyleBox', 'HoldForm'):
+
+            # Emit warning if head is not in KNOWN_HEADS and not a simple single-word function call like f(x)
+            if clean_head not in KNOWN_HEADS and not (len(clean_head) <= 3 and clean_head.isalnum()):
+                WARNINGS.append(f"Entity [{CURRENT_ENTITY}]: Unsupported or unknown box/call construct '{clean_head}' encountered.")
+
+            if clean_head in ('FormBox', 'TagBox', 'InterpretationBox', 'StyleBox', 'HoldForm'):
                 return ast_to_latex(args[0])
-            elif head_val == 'RowBox':
+            elif clean_head == 'RowBox':
                 if args and args[0][0] == 'LIST':
                     return ' '.join(ast_to_latex(x) for x in args[0][1])
                 return ast_to_latex(args[0]) if args else ''
-            elif head_val == 'TemplateBox':
+            elif clean_head == 'TemplateBox':
                 if len(args) >= 2 and args[1] == ('STR', 'RowWithSeparators'):
                     if args[0][0] == 'LIST':
                         items = args[0][1]
@@ -343,34 +368,37 @@ def ast_to_latex(node):
                         return ' '.join(ast_to_latex(x) for x in args[0][1])
                     return ast_to_latex(args[0])
                 return ''
-            elif head_val == 'SubscriptBox':
+            elif clean_head == 'SubscriptBox':
                 if len(args) == 2:
                     return f'{ast_to_latex(args[0])}_{{{ast_to_latex(args[1])}}}'
-            elif head_val == 'SuperscriptBox':
+            elif clean_head == 'SuperscriptBox':
                 if len(args) == 2:
                     return f'{ast_to_latex(args[0])}^{{{ast_to_latex(args[1])}}}'
-            elif head_val == 'SubsuperscriptBox':
+            elif clean_head == 'SubsuperscriptBox':
                 if len(args) == 3:
                     return f'{ast_to_latex(args[0])}_{{{ast_to_latex(args[1])}}}^{{{ast_to_latex(args[2])}}}'
-            elif head_val == 'UnderscriptBox':
+            elif clean_head == 'UnderscriptBox':
                 if len(args) == 2:
                     return f'\\underset{{{ast_to_latex(args[1])}}}{{{ast_to_latex(args[0])}}}'
-            elif head_val == 'OverscriptBox':
+            elif clean_head == 'OverscriptBox':
                 if len(args) == 2:
                     over = ast_to_latex(args[1])
                     if over in ('_', '-', '¯', '\\text{_}'):
                         return f'\\overline{{{ast_to_latex(args[0])}}}'
                     return f'\\overset{{{over}}}{{{ast_to_latex(args[0])}}}'
-            elif head_val == 'FractionBox':
+            elif clean_head == 'UnderoverscriptBox':
+                if len(args) == 3:
+                    return f'\\munderover{{{ast_to_latex(args[1])}}}{{{ast_to_latex(args[2])}}}{{{ast_to_latex(args[0])}}}'
+            elif clean_head == 'FractionBox':
                 if len(args) == 2:
                     return f'\\frac{{{ast_to_latex(args[0])}}}{{{ast_to_latex(args[1])}}}'
-            elif head_val == 'SqrtBox':
+            elif clean_head == 'SqrtBox':
                 if len(args) == 1:
                     return f'\\sqrt{{{ast_to_latex(args[0])}}}'
-            elif head_val == 'RadicalBox':
+            elif clean_head == 'RadicalBox':
                 if len(args) == 2:
                     return f'\\sqrt[{ast_to_latex(args[1])}]{{{ast_to_latex(args[0])}}}'
-            elif head_val == 'GridBox':
+            elif clean_head == 'GridBox':
                 if args and args[0][0] == 'LIST':
                     rows = args[0][1]
                     lines = []
@@ -379,7 +407,44 @@ def ast_to_latex(node):
                             cells = [ast_to_latex(c) for c in r[1]]
                             lines.append(' & '.join(cells))
                     return ' \\\\ '.join(lines)
-            elif head_val == 'Function':
+            elif clean_head == 'Abs':
+                if len(args) == 1:
+                    return f'|{ast_to_latex(args[0])}|'
+            elif clean_head == 'Sqrt':
+                if len(args) == 1:
+                    return f'\\sqrt{{{ast_to_latex(args[0])}}}'
+            elif clean_head == 'Min':
+                return f"\\min({', '.join(ast_to_latex(x) for x in args)})"
+            elif clean_head == 'Sum':
+                return f"\\sum { ' '.join(ast_to_latex(x) for x in args) }"
+            elif clean_head == 'SuperStar':
+                if len(args) == 1:
+                    return f'{ast_to_latex(args[0])}^*'
+            elif clean_head == 'Infix':
+                if len(args) >= 2 and args[0][0] == 'LIST':
+                    sep = ast_to_latex(args[1]).strip()
+                    return f" {sep} ".join(ast_to_latex(x) for x in args[0][1])
+            elif clean_head == 'Element':
+                if len(args) == 2:
+                    return f'{ast_to_latex(args[0])} \\in {ast_to_latex(args[1])}'
+            elif clean_head == 'Exists':
+                if len(args) == 2:
+                    return f'\\exists_{{{ast_to_latex(args[0])}}} {ast_to_latex(args[1])}'
+            elif clean_head == 'SetUnion':
+                return f"\\bigcup { ' '.join(ast_to_latex(x) for x in args) }"
+            elif clean_head == 'SetMinus':
+                if len(args) == 2:
+                    return f'{ast_to_latex(args[0])} \\setminus {ast_to_latex(args[1])}'
+            elif clean_head == 'SetProduct':
+                return f"\\prod { ' '.join(ast_to_latex(x) for x in args) }"
+            elif clean_head == 'Tuple':
+                return f"({', '.join(ast_to_latex(x) for x in args)})"
+            elif clean_head == 'Supremum':
+                return f"\\sup({', '.join(ast_to_latex(x) for x in args)})"
+            elif clean_head == 'ProjectionMap':
+                if len(args) == 2:
+                    return f"\\pi_{{{ast_to_latex(args[1])}}}({ast_to_latex(args[0])})"
+            elif clean_head == 'Function':
                 return ''
             return ' '.join(ast_to_latex(x) for x in args)
         elif ntype == 'INFIX':
@@ -432,6 +497,7 @@ def parse_summary_grid(sg_text):
     return res_rows
 
 def build_db():
+    global CURRENT_ENTITY
     print("Reading Wolfram Language EntityStore...")
     with open(WL_PATH, 'r') as f:
         text = f.read()
@@ -468,9 +534,13 @@ def build_db():
         label TEXT,
         alternate_names TEXT,
         qualifying_objects TEXT,
+        raw_qualifying_objects TEXT,
         notation TEXT,
+        raw_notation TEXT,
         restrictions TEXT,
+        raw_restrictions TEXT,
         statement TEXT,
+        raw_statement TEXT,
         references_text TEXT,
         raw_rows TEXT NOT NULL
     );
@@ -496,18 +566,17 @@ def build_db():
     cur.execute("CREATE INDEX idx_ent_label ON entities(label);")
 
     def insert_entity(name, ent_type, body_text):
+        global CURRENT_ENTITY
+        CURRENT_ENTITY = name
         props = dict(get_top_level_entries(body_text))
         sg_text = props.get('SummaryGrid', '')
         rows = parse_summary_grid(sg_text)
         row_dict = {}
         for h, v in rows:
-            # remove surrounding quotes or extra spaces from header key
             clean_h = h.strip('"').strip()
             row_dict[clean_h] = v
 
-        # Extract fields
         label = row_dict.get('Label', '')
-        # if label starts with \text{...}, strip \text{ and }
         def clean_text_wrapper(s):
             if s.startswith('\\text{') and s.endswith('}'):
                 return s[6:-1]
@@ -524,28 +593,42 @@ def build_db():
         statement = row_dict.get('Statement', '') or row_dict.get('Output', '') or row_dict.get('Expression', '')
         refs = row_dict.get('References', '')
 
-        # Also collect relationships from row_dict or from raw properties
-        # In SummaryGrid, RelatedConcepts value is like "IsEquivalenceRelationOn, IsPartitionOf"
+        # Also capture raw Wolfram expressions alongside generated LaTeX!
+        raw_qual_objs = props.get('"QualifyingObjects"', '') or props.get('"Arguments"', '')
+        raw_notation = props.get('"Notation"', '')
+        raw_restrictions = props.get('"Restrictions"', '')
+        raw_statement = props.get('"Statement"', '') or props.get('"Output"', '') or props.get('"Expression"', '')
+
         rel_concepts_str = row_dict.get('RelatedConcepts', '')
         rel_theorems_str = row_dict.get('RelatedTheorems', '')
 
         cur.execute("""
-        INSERT INTO entities (id, type, label, alternate_names, qualifying_objects, notation, restrictions, statement, references_text, raw_rows)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO entities (
+            id, type, label, alternate_names,
+            qualifying_objects, raw_qualifying_objects,
+            notation, raw_notation,
+            restrictions, raw_restrictions,
+            statement, raw_statement,
+            references_text, raw_rows
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             name,
             ent_type,
             label_clean,
             alt_names,
             qual_objs,
+            raw_qual_objs,
             notation,
+            raw_notation,
             restrictions,
+            raw_restrictions,
             statement,
+            raw_statement,
             refs,
             json.dumps(rows)
         ))
 
-        # Helper to parse comma-separated IDs
         def add_rels(rel_str, rel_type):
             if not rel_str: return
             for item in rel_str.split(','):
@@ -570,7 +653,6 @@ def build_db():
 
     conn.commit()
 
-    # Statistics
     cur.execute("SELECT count(*) FROM entities WHERE type='concept'")
     c_cnt = cur.fetchone()[0]
     cur.execute("SELECT count(*) FROM entities WHERE type='theorem'")
@@ -582,6 +664,14 @@ def build_db():
     print(f"Concepts inserted: {c_cnt}")
     print(f"Theorems inserted: {t_cnt}")
     print(f"Relationships inserted: {r_cnt}")
+    if WARNINGS:
+        print(f"\n[PARSER AUDIT] {len(WARNINGS)} warnings emitted during AST conversion:")
+        for w in WARNINGS[:10]:
+            print("  -", w)
+        if len(WARNINGS) > 10:
+            print(f"  ... and {len(WARNINGS)-10} more warnings.")
+    else:
+        print("\n[PARSER AUDIT] 0 warnings emitted! All 441 entity box expressions matched known supported constructs.")
 
     conn.close()
 

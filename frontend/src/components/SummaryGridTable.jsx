@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, BookOpen, Tag, ArrowRight } from 'lucide-react';
+import { ExternalLink, BookOpen, Tag, ArrowRight, Code2 } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 
 export default function SummaryGridTable({ entity }) {
+  const [showRaw, setShowRaw] = useState(false);
+
   if (!entity) return null;
 
   const isTheorem = entity.type === 'theorem';
   const rawRows = entity.raw_rows || [];
 
-  // Helper to find raw row value by header
   const getRowValue = (headers) => {
     const list = Array.isArray(headers) ? headers : [headers];
     for (const r of rawRows) {
@@ -21,16 +22,15 @@ export default function SummaryGridTable({ entity }) {
     return '';
   };
 
-  // Determine row order according to Munkres topology documentation
   const rowConfig = isTheorem
     ? [
         { header: 'Theorem', value: entity.id, type: 'title' },
         { header: 'Label', value: entity.label, type: 'label' },
         { header: 'AlternateNames', value: getRowValue(['AlternateNames', 'AlternateNames']), type: 'text' },
-        { header: 'QualifyingObjects', value: getRowValue(['QualifyingObjects', 'Arguments']), type: 'math' },
-        { header: 'Notation', value: getRowValue('Notation'), type: 'math' },
-        { header: 'Restrictions', value: getRowValue('Restrictions'), type: 'math_multi' },
-        { header: 'Statement', value: getRowValue(['Statement', 'Output', 'Expression']), type: 'math_multi' },
+        { header: 'QualifyingObjects', value: getRowValue(['QualifyingObjects', 'Arguments']), rawValue: entity.raw_qualifying_objects, type: 'math' },
+        { header: 'Notation', value: getRowValue('Notation'), rawValue: entity.raw_notation, type: 'math' },
+        { header: 'Restrictions', value: getRowValue('Restrictions'), rawValue: entity.raw_restrictions, type: 'math_multi' },
+        { header: 'Statement', value: getRowValue(['Statement', 'Output', 'Expression']), rawValue: entity.raw_statement, type: 'math_multi' },
         { header: 'References', value: getRowValue('References'), type: 'references' },
         { header: 'RelatedConcepts', value: '', type: 'related' }
       ]
@@ -38,10 +38,10 @@ export default function SummaryGridTable({ entity }) {
         { header: 'Math', value: entity.id, type: 'title' },
         { header: 'Label', value: entity.label, type: 'label' },
         { header: 'AlternateNames', value: getRowValue('AlternateNames'), type: 'text' },
-        { header: 'Arguments', value: getRowValue(['Arguments', 'QualifyingObjects']), type: 'math' },
-        { header: 'Notation', value: getRowValue('Notation'), type: 'math' },
-        { header: 'Restrictions', value: getRowValue('Restrictions'), type: 'math_multi' },
-        { header: 'Expression', value: getRowValue(['Expression', 'Output', 'Statement']), type: 'math_multi' },
+        { header: 'Arguments', value: getRowValue(['Arguments', 'QualifyingObjects']), rawValue: entity.raw_qualifying_objects, type: 'math' },
+        { header: 'Notation', value: getRowValue('Notation'), rawValue: entity.raw_notation, type: 'math' },
+        { header: 'Restrictions', value: getRowValue('Restrictions'), rawValue: entity.raw_restrictions, type: 'math_multi' },
+        { header: 'Expression', value: getRowValue(['Expression', 'Output', 'Statement']), rawValue: entity.raw_statement, type: 'math_multi' },
         { header: 'References', value: getRowValue('References'), type: 'references' },
         { header: 'RelatedConcepts', value: '', type: 'related' },
         { header: 'RelatedTheorems', value: '', type: 'related_theorems' }
@@ -74,13 +74,18 @@ export default function SummaryGridTable({ entity }) {
       return (
         <div className="py-0.5">
           <MathRenderer math={row.value} inline={true} />
+          {showRaw && row.rawValue && (
+            <div className="mt-2.5 p-2.5 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl overflow-x-auto border border-slate-700 shadow-inner">
+              <div className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-wider">Original Wolfram Syntax</div>
+              <code>{row.rawValue}</code>
+            </div>
+          )}
         </div>
       );
     }
 
     if (row.type === 'references') {
       if (!row.value) return <span className="text-slate-400 italic text-sm">None</span>;
-      // Clean citation text
       const cleanRef = row.value.replace(/\\text\{([^}]*)\}/g, '$1').replace(/\$/g, '');
       return (
         <div className="flex items-start space-x-2 text-sm text-slate-700 font-serif">
@@ -124,21 +129,34 @@ export default function SummaryGridTable({ entity }) {
 
   return (
     <div className="bg-white rounded-xl shadow-md border border-slate-300 overflow-hidden">
-      <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+      <div className="px-5 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center space-x-2">
           <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: entity.type === 'concept' ? '#B2FFB2' : '#FFFF80', border: '1px solid #94A3B8' }}></span>
           <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
             Wolfram Language Summary Grid — {entity.type === 'concept' ? 'GeneralTopologyConcept' : 'GeneralTopologyTheorem'}
           </span>
         </div>
-        <span className="text-xs font-mono text-slate-400">ID: {entity.id}</span>
+
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setShowRaw(!showRaw)}
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+              showRaw
+                ? 'bg-slate-900 text-emerald-400 border-slate-700 shadow-xs'
+                : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-300'
+            }`}
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            <span>{showRaw ? 'Hide Wolfram Syntax' : 'Show Original Wolfram Syntax [WL]'}</span>
+          </button>
+          <span className="text-xs font-mono text-slate-400 hidden sm:inline">ID: {entity.id}</span>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
         <table className="summary-grid-table">
           <tbody>
             {rowConfig.map((row, idx) => {
-              // Skip empty optional rows
               if (!row.value && (row.header === 'AlternateNames' || row.header === 'Notation')) {
                 return null;
               }

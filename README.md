@@ -18,7 +18,10 @@ An interactive topological knowledge graph, textbook explorer, and canonical pro
 
 ## 2. Formatting & LaTeX Rendering
 
-- **Wolfram Box AST to Standard LaTeX Conversion:** A custom recursive AST parser (`backend/build_db.py`) parses Wolfram Language `TraditionalForm` box structures (`FormBox`, `TagBox`, `TemplateBox`, `GridBox`, `SubscriptBox`, `SuperscriptBox`, unicode mathematical symbols, etc.) and converts them into clean, textbook-standard LaTeX.
+- **Wolfram Box AST to Standard LaTeX Conversion & Safety Audit:** A custom recursive AST parser (`backend/build_db.py`) parses Wolfram Language `TraditionalForm` box structures (`FormBox`, `TagBox`, `TemplateBox`, `GridBox`, `SubscriptBox`, `SuperscriptBox`, unicode mathematical symbols, etc.) and converts them into clean, textbook-standard LaTeX.
+  - **Supported Box Whitelist & Warning Emitter:** The database generator (`build_db.py`) maintains an explicit whitelist (`KNOWN_HEADS`) of supported Wolfram box constructors and mathematical functions. If an unrecognized box structure appears, `build_db.py` emits an explicit warning during database generation rather than silently corrupting output.
+  - **Raw Wolfram Source Preservation:** To ensure mathematical integrity, the original Wolfram Language raw expressions (`raw_statement`, `raw_restrictions`, `raw_qualifying_objects`, `raw_notation`) are stored in SQLite alongside the generated LaTeX.
+  - **Interactive Syntax Toggle:** On any Concept or Theorem summary page, users can click **"Show Original Wolfram Syntax [WL]"** to inspect the exact Wolfram Language syntax alongside the MathJax LaTeX rendering.
 - **Traditional Math Form:** All formulas display in standard textbook notation rather than programming syntax.
 - **MathJax 3 Integration:** Crisp client-side typesetting for all inline math (`$...$`) and multi-line equations (`\\[...\\]` and `\begin{array}...\end{array}`).
 

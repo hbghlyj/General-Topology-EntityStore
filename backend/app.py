@@ -143,7 +143,7 @@ def get_entities(
         order_col = "label" if sort_by == "label" else "id"
         offset = (page - 1) * limit
         cur.execute(
-            f"SELECT id, type, label, alternate_names, qualifying_objects, restrictions, statement, references_text "
+            f"SELECT id, type, label, alternate_names, qualifying_objects, raw_qualifying_objects, restrictions, raw_restrictions, statement, raw_statement, references_text "
             f"FROM entities{where_clause} ORDER BY {order_col} ASC LIMIT ? OFFSET ?",
             params + [limit, offset]
         )
