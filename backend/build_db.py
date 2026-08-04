@@ -431,7 +431,7 @@ def ast_to_latex(node):
                     return f'\\overset{{{over}}}{{{ast_to_latex(args[0])}}}'
             elif clean_head == 'UnderoverscriptBox':
                 if len(args) == 3:
-                    return f'\\underoverset{{{ast_to_latex(args[1])}}}{{{ast_to_latex(args[2])}}}{{{ast_to_latex(args[0])}}}'
+                    return f'\\overunderset{{{ast_to_latex(args[2])}}}{{{ast_to_latex(args[1])}}}{{{ast_to_latex(args[0])}}}'
             elif clean_head == 'FractionBox':
                 if len(args) == 2:
                     return f'\\frac{{{ast_to_latex(args[0])}}}{{{ast_to_latex(args[1])}}}'
