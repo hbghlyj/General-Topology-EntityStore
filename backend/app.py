@@ -67,7 +67,7 @@ def get_graph(
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        query += " ORDER BY label LIMIT ?"
+        query += " ORDER BY label ASC, id ASC LIMIT ?"
         params.append(limit)
 
         cur.execute(query, params)
@@ -139,12 +139,12 @@ def get_entities(
         cur.execute(f"SELECT count(*) FROM entities{where_clause}", params)
         total_count = cur.fetchone()[0]
 
-        # Fetch paginated
-        order_col = "label" if sort_by == "label" else "id"
+        # Fetch paginated with deterministic secondary sort key on id
+        order_clause = "label ASC, id ASC" if sort_by == "label" else "id ASC"
         offset = (page - 1) * limit
         cur.execute(
             f"SELECT id, type, label, alternate_names, qualifying_objects, raw_qualifying_objects, restrictions, raw_restrictions, statement, raw_statement, references_text "
-            f"FROM entities{where_clause} ORDER BY {order_col} ASC LIMIT ? OFFSET ?",
+            f"FROM entities{where_clause} ORDER BY {order_clause} LIMIT ? OFFSET ?",
             params + [limit, offset]
         )
         rows = [dict(r) for r in cur.fetchall()]
