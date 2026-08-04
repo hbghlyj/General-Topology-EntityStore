@@ -491,6 +491,7 @@ def build_db():
 
     cur.execute("CREATE INDEX idx_rel_source ON relationships(source_id);")
     cur.execute("CREATE INDEX idx_rel_target ON relationships(target_id);")
+    cur.execute("CREATE INDEX idx_rel_source_target ON relationships(source_id, target_id);")
     cur.execute("CREATE INDEX idx_ent_type ON entities(type);")
     cur.execute("CREATE INDEX idx_ent_label ON entities(label);")
 

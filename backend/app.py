@@ -85,12 +85,20 @@ def get_graph(
                 "statement": row["statement"] or ""
             })
 
-        # Fetch edges where both source and target are in our node set (or at least source is)
-        cur.execute("SELECT source_id, target_id, rel_type FROM relationships")
-        all_edges = cur.fetchall()
+        # Fetch edges directly from SQLite using the composite index idx_rel_source_target
         edges = []
-        for e in all_edges:
-            if e["source_id"] in node_ids and e["target_id"] in node_ids:
+        if node_ids:
+            node_ids_list = list(node_ids)
+            placeholders = ",".join("?" * len(node_ids_list))
+            cur.execute(
+                f"""
+                SELECT source_id, target_id, rel_type FROM relationships
+                WHERE source_id IN ({placeholders})
+                  AND target_id IN ({placeholders})
+                """,
+                node_ids_list + node_ids_list
+            )
+            for e in cur.fetchall():
                 edges.append({
                     "id": f"{e['source_id']}->{e['target_id']}",
                     "source": e["source_id"],
