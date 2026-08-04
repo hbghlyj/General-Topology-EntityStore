@@ -154,6 +154,28 @@ class TestStructuralGuarantees(unittest.TestCase):
         self.assertIn('\\subseteq', math_values(lines))
 
 
+class TestCleanLabel(unittest.TestCase):
+    def test_single_text_wrapper_unwrapped(self):
+        self.assertEqual(bd.clean_label('\\text{Urysohn Lemma}'), 'Urysohn Lemma')
+
+    def test_plain_label_unchanged(self):
+        self.assertEqual(bd.clean_label('Compactness'), 'Compactness')
+
+    def test_mixed_text_and_math_flattened(self):
+        # regression: naive \\text{...} stripping corrupted mixed labels into
+        # 'closed } G_{\delta} \text{ subset of ...'
+        s = '\\text{closed } G_{\\delta} \\text{ subset of normal space}'
+        self.assertEqual(bd.clean_label(s), 'closed G_δ subset of normal space')
+
+    def test_trailing_math_segment(self):
+        s = '\\text{is } G_{\\delta} \\text{ in}'
+        self.assertEqual(bd.clean_label(s), 'is G_δ in')
+
+    def test_leading_text_segment_only(self):
+        s = '\\text{closed subset of regular space with countably locally finite basis is } G_{\\delta}'
+        self.assertEqual(bd.clean_label(s), 'closed subset of regular space with countably locally finite basis is G_δ')
+
+
 class TestAscoliIntegration(unittest.TestCase):
     """End-to-end over the real Wolfram EntityStore source."""
 

@@ -347,6 +347,48 @@ def is_single_text_wrapper(s):
                 return False
     return depth == 1
 
+# LaTeX -> unicode for plain-text labels, longest commands first so e.g.
+# '\\infty' is replaced before '\\in'. Skips private-use glyphs (they render
+# as tofu) and non-command values like '=' that must stay ASCII.
+_LATEX_TO_UNICODE = sorted(
+    ((v, k) for k, v in UNICODE_MAP.items()
+     if v.startswith('\\') and not (0xE000 <= ord(k) <= 0xF8FF)),
+    key=lambda kv: -len(kv[0])
+)
+
+def clean_label(s):
+    """Flatten a LaTeX-ish summary-grid Label to plain readable text.
+
+    Single-wrapper labels (\\text{...}) are unwrapped; mixed labels
+    (\\text{closed } G_{\\delta} \\text{ subset ...}) have each \\text{}
+    segment stripped and remaining math commands folded back to unicode.
+    """
+    if is_single_text_wrapper(s):
+        return s[6:-1]
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        if s.startswith('\\text{', i):
+            j = i + 6
+            depth = 1
+            while j < n and depth:
+                if s[j] == '{':
+                    depth += 1
+                elif s[j] == '}':
+                    depth -= 1
+                j += 1
+            out.append(s[i + 6:j - 1])
+            i = j
+        else:
+            out.append(s[i])
+            i += 1
+    s = ''.join(out)
+    for latex, uni in _LATEX_TO_UNICODE:
+        s = s.replace(latex, uni)
+    s = re.sub(r'_\{([^}]*)\}', r'_\1', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
 def ast_to_latex(node):
     if not node: return ''
     if isinstance(node, tuple):
@@ -915,12 +957,7 @@ def build_db():
                 row_nodes[clean_h] = cell_node
 
             label = row_dict.get('Label', '')
-            def clean_text_wrapper(s):
-                if s.startswith('\\text{') and s.endswith('}'):
-                    return s[6:-1]
-                return s
-
-            label_clean = clean_text_wrapper(label)
+            label_clean = clean_label(label)
             if not label_clean and props.get('Label', ''):
                 label_clean = props['Label'].strip('"')
 
