@@ -1,12 +1,11 @@
 import os
 import json
 import sqlite3
-from typing import Optional, List
+from typing import Optional
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'topology.db')
 
