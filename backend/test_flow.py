@@ -94,6 +94,10 @@ class TestGrouping(unittest.TestCase):
 
 
 class TestBoldItalicMathVsText(unittest.TestCase):
+    def test_is_single_text_wrapper_helper(self):
+        self.assertTrue(bd.is_single_text_wrapper(r"\text{A{B}}"))
+        self.assertFalse(bd.is_single_text_wrapper(r"\text{A}\text{B}"))
+
     def test_bold_identifier_is_mathbf(self):
         lines = flow('StyleBox[x, Bold]')
         self.assertEqual(math_values(lines), ['\\mathbf{x}'])
@@ -106,6 +110,10 @@ class TestBoldItalicMathVsText(unittest.TestCase):
     def test_bold_text_is_textbf(self):
         lines = flow('StyleBox["\\"Top\\"", Bold]')
         self.assertEqual(math_values(lines), ['\\textbf{Top}'])
+
+    def test_bold_rowbox_text_is_textbf(self):
+        lines = flow('StyleBox[RowBox[{"Topology"}], Bold]')
+        self.assertEqual(math_values(lines), ['\\textbf{Topology}'])
 
     def test_italic_text_is_textit(self):
         lines = flow('StyleBox["\\"Topology\\"", Italic]')
