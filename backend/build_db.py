@@ -2,6 +2,11 @@ import os
 import re
 import json
 import sqlite3
+import sys
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 WL_PATH = os.path.join(os.path.dirname(__file__), '..', 'General-Topology-EntityStore.wl')
 DB_PATH = os.path.join(os.path.dirname(__file__), 'topology.db')
@@ -389,7 +394,7 @@ def ast_to_latex(node):
                     return f'\\overset{{{over}}}{{{ast_to_latex(args[0])}}}'
             elif clean_head == 'UnderoverscriptBox':
                 if len(args) == 3:
-                    return f'\\munderover{{{ast_to_latex(args[1])}}}{{{ast_to_latex(args[2])}}}{{{ast_to_latex(args[0])}}}'
+                    return f'\\overset{{{ast_to_latex(args[2])}}}{{\\underset{{{ast_to_latex(args[1])}}}{{{ast_to_latex(args[0])}}}}}'
             elif clean_head == 'FractionBox':
                 if len(args) == 2:
                     return f'\\frac{{{ast_to_latex(args[0])}}}{{{ast_to_latex(args[1])}}}'
@@ -534,7 +539,7 @@ def parse_wl_list(wl_str):
 def build_db():
     global CURRENT_ENTITY
     print("Reading Wolfram Language EntityStore...")
-    with open(WL_PATH, 'r') as f:
+    with open(WL_PATH, 'r', encoding='utf-8') as f:
         text = f.read()
 
     idx_c = text.find('"GeneralTopologyConcept" -> <|')
