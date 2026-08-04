@@ -12,7 +12,7 @@ An interactive topological knowledge graph, textbook explorer, and canonical pro
   - **`GeneralTopologyTheorem`** (225 theorems): Classical theorems from Munkres' *Topology*, including Urysohn's Lemma, Tychonoff's Theorem, Baire Category Theorem, and Ascoli's Theorem.
 - **Relational & Graph SQLite Database (`backend/topology.db`):**
   - **`entities` Table:** Stores normalized fields including canonical ID, type (`concept` or `theorem`), friendly label, alternate names, qualifying objects, notation, restrictions, statement formula, references, and complete JSON summary grid rows.
-  - **`relationships` Table:** Stores 1,659 directional relationships (`source_id`, `source_type`, `target_id`, `target_type`, `rel_type`) mapping connections between Concepts-to-Concepts, Theorems-to-Theorems, and Concepts-to-Theorems from `RelatedConcepts` and `RelatedTheorems` associations. Includes a composite index `idx_rel_source_target(source_id, target_id)` so graph queries (`WHERE source_id IN (...) AND target_id IN (...)`) filter directly inside SQLite for optimal scalability.
+  - **`relationships` Table:** Stores 1,659 directional relationships (`source_id`, `source_type`, `target_id`, `target_type`, `rel_type`) mapping connections between Concepts-to-Concepts, Theorems-to-Theorems, and Concepts-to-Theorems. Relationships are extracted structurally from the Wolfram Language AST (`RelatedConcepts` and `RelatedTheorems` `{...}` list expressions) without any fragile comma-splitting. Includes a composite index `idx_rel_source_target(source_id, target_id)` so graph queries (`WHERE source_id IN (...) AND target_id IN (...)`) filter directly inside SQLite for optimal scalability.
 
 ---
 

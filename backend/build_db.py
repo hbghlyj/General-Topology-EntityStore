@@ -496,6 +496,40 @@ def parse_summary_grid(sg_text):
         res_rows.append((header, val))
     return res_rows
 
+def parse_wl_list(wl_str):
+    if not wl_str or not wl_str.strip():
+        return []
+    try:
+        p = Parser(tokenize_wl(wl_str))
+        ast = p.parse_expr()
+        items = []
+        def extract_items(node):
+            if not node: return
+            if isinstance(node, tuple):
+                if node[0] == 'STR':
+                    val = node[1].replace('\\"', '').strip('"').strip()
+                    if val: items.append(val)
+                elif node[0] == 'SYM':
+                    val = node[1].strip()
+                    if val and val not in ('List', 'GeneralTopology'):
+                        items.append(val.split('`')[-1])
+                elif node[0] == 'LIST':
+                    for x in node[1]:
+                        extract_items(x)
+                elif node[0] == 'CALL':
+                    for x in node[2]:
+                        extract_items(x)
+        extract_items(ast)
+        return items
+    except Exception as e:
+        WARNINGS.append(f"Failed to parse WL list '{wl_str}' as AST: {e}. Falling back to token inspection.")
+        tokens = tokenize_wl(wl_str)
+        return [
+            t[1].replace('\\"', '').strip('"').strip()
+            for t in tokens
+            if t[0] in ('STR', 'SYM') and t[1] not in ('{', '}', ',', 'List')
+        ]
+
 def build_db():
     global CURRENT_ENTITY
     print("Reading Wolfram Language EntityStore...")
@@ -599,8 +633,9 @@ def build_db():
         raw_restrictions = props.get('"Restrictions"', '')
         raw_statement = props.get('"Statement"', '') or props.get('"Output"', '') or props.get('"Expression"', '')
 
-        rel_concepts_str = row_dict.get('RelatedConcepts', '')
-        rel_theorems_str = row_dict.get('RelatedTheorems', '')
+        # Extract relationships cleanly via structural Wolfram AST list parsing
+        rc_list = parse_wl_list(props.get('RelatedConcepts', ''))
+        rt_list = parse_wl_list(props.get('RelatedTheorems', ''))
 
         cur.execute("""
         INSERT INTO entities (
@@ -629,10 +664,8 @@ def build_db():
             json.dumps(rows)
         ))
 
-        def add_rels(rel_str, rel_type):
-            if not rel_str: return
-            for item in rel_str.split(','):
-                tid = item.strip().strip('"')
+        def add_rels_list(target_ids, rel_type):
+            for tid in target_ids:
                 if tid and tid != name:
                     ttype = entity_type_map.get(tid, 'concept')
                     cur.execute("""
@@ -640,8 +673,8 @@ def build_db():
                     VALUES (?, ?, ?, ?, ?)
                     """, (name, ent_type, tid, ttype, rel_type))
 
-        add_rels(rel_concepts_str, 'RelatedConcepts')
-        add_rels(rel_theorems_str, 'RelatedTheorems')
+        add_rels_list(rc_list, 'RelatedConcepts')
+        add_rels_list(rt_list, 'RelatedTheorems')
 
     print("Inserting concepts...")
     for name, body in c_entries:
