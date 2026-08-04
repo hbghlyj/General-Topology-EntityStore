@@ -26,6 +26,33 @@
   margin: 0 !important;
 }
 
+/* Flowing, wrappable statement rendering: prose segments wrap like normal
+   text while math segments stay atomic inline chunks. */
+.math-flow {
+  display: block;
+  max-width: 100%;
+  line-height: 2.1;
+  font-size: 0.95rem;
+}
+
+.math-flow mjx-container {
+  margin: 0 !important;
+}
+
+.math-flow .flow-line + .flow-line {
+  margin-top: 0.4rem;
+}
+
+.math-flow .flow-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.95em;
+  color: #1e293b;
+}
+
+.math-flow .flow-math {
+  white-space: nowrap;
+}
+
 /* Munkres Summary Grid custom table borders */
 .summary-grid-table {
   border-collapse: collapse;

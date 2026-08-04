@@ -24,6 +24,7 @@ An interactive topological knowledge graph, textbook explorer, and canonical pro
   - **Raw Wolfram Source Preservation:** To ensure mathematical integrity, the original Wolfram Language raw expressions (`raw_statement`, `raw_restrictions`, `raw_qualifying_objects`, `raw_notation`) are stored in SQLite alongside the generated LaTeX.
   - **Interactive Syntax Toggle:** On any Concept or Theorem summary page, users can click **"Show Original Wolfram Syntax [WL]"** to inspect the exact Wolfram Language syntax alongside the MathJax LaTeX rendering.
 - **Traditional Math Form:** All formulas display in standard textbook notation rather than programming syntax.
+- **Wrappable Statement Rendering:** Long Statement/Expression cells are typeset as flowing sentences — prose segments (`\text{...}`) render as wrappable text and formula segments as atomic inline math (split at top-level spaces, with paren/brace groups and sub/superscripts kept intact) — so statements wrap over multiple lines instead of overflowing as one long unbreakable formula. Upright operator names (`\text{Hom}_{\textbf{Top}}`) and the double-struck reals `\mathbb{R}` (Wolfram PUA character U+F7B5) are converted textbook-style.
 - **MathJax 3 Integration:** Crisp client-side typesetting for all inline math (`$...$`) and multi-line equations (`\\[...\\]` and `\begin{array}...\end{array}`).
 
 ---

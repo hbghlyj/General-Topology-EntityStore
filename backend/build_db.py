@@ -20,7 +20,7 @@ UNICODE_MAP = {
     '': '\\mathcal{A}',
     '': '\\mathcal{C}',
     '': '\\mathcal{P}',
-    '': '\\infty',
+    '': '\\mathbb{R}',
     '': '\\mathbb{R}',
     '': '\\mathcal{B}',
     '': '\\mathbb{Z}',
@@ -344,6 +344,10 @@ def ast_to_latex(node):
                 val = val.replace(k, v)
             if ' ' in val or any(w in val for w in [' is ', ' the ', ' an ', ' of ', ' on ', ' in ']):
                 return f'\\text{{{val}}}'
+            # multi-letter words ("Hom", "Top", "and", "el", ...) are upright text,
+            # not products of italic variables; single letters stay math italic
+            if len(val) > 1 and re.fullmatch(r"[A-Za-z][A-Za-z'’-]*", val):
+                return f'\\text{{{val}}}'
             return val
         elif ntype == 'SYM':
             val = node[1]
@@ -363,7 +367,19 @@ def ast_to_latex(node):
             if clean_head not in KNOWN_HEADS and not (len(clean_head) <= 3 and clean_head.isalnum()):
                 WARNINGS.append(f"Entity [{CURRENT_ENTITY}]: Unsupported or unknown box/call construct '{clean_head}' encountered.")
 
-            if clean_head in ('FormBox', 'TagBox', 'InterpretationBox', 'StyleBox', 'HoldForm'):
+            if clean_head == 'StyleBox':
+                inner = ast_to_latex(args[0])
+                styles = {a[1] for a in args[1:] if isinstance(a, tuple) and a[0] == 'SYM'}
+                bold = 'Bold' in styles
+                italic = 'Italic' in styles
+                if bold and italic:
+                    return f'\\textbf{{\\textit{{{inner}}}}}'
+                if bold:
+                    return f'\\textbf{{{inner}}}'
+                if italic:
+                    return f'\\textit{{{inner}}}'
+                return inner
+            if clean_head in ('FormBox', 'TagBox', 'InterpretationBox', 'HoldForm'):
                 return ast_to_latex(args[0])
             elif clean_head == 'RowBox':
                 if args and args[0][0] == 'LIST':
@@ -501,10 +517,17 @@ def parse_summary_grid(sg_text):
     if not grid_node:
         return []
     rows = grid_node[2][0][1]
+
+    def unwrap_text(s):
+        s = s.strip()
+        if s.startswith('\\text{') and s.endswith('}'):
+            return s[6:-1]
+        return s
+
     res_rows = []
     for row in rows:
         cells = row[1]
-        header = ast_to_latex(cells[0])
+        header = unwrap_text(ast_to_latex(cells[0]))
         val = ast_to_latex(cells[1])
         res_rows.append((header, val))
     return res_rows
