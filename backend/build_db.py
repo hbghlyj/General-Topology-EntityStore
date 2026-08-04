@@ -78,6 +78,13 @@ KNOWN_HEADS = {
 WARNINGS = []
 CURRENT_ENTITY = "unknown"
 
+def clean_raw_wl(s):
+    if not s:
+        return s
+    for k, v in UNICODE_MAP.items():
+        s = s.replace(k, v)
+    return s.replace('GeneralTopology`', '')
+
 def find_matching_assoc(text, start_idx):
     depth = 0
     in_string = False
@@ -628,8 +635,8 @@ def build_db():
                 return s
 
             label_clean = clean_text_wrapper(label)
-            if not label_clean and '"Label"' in props:
-                label_clean = props['"Label"'].strip('"')
+            if not label_clean and props.get('Label', ''):
+                label_clean = props['Label'].strip('"')
 
             alt_names = row_dict.get('AlternateNames', '')
             qual_objs = row_dict.get('QualifyingObjects', '') or row_dict.get('Arguments', '')
@@ -639,10 +646,10 @@ def build_db():
             refs = row_dict.get('References', '')
 
             # Also capture raw Wolfram expressions alongside generated LaTeX!
-            raw_qual_objs = props.get('"QualifyingObjects"', '') or props.get('"Arguments"', '')
-            raw_notation = props.get('"Notation"', '')
-            raw_restrictions = props.get('"Restrictions"', '')
-            raw_statement = props.get('"Statement"', '') or props.get('"Output"', '') or props.get('"Expression"', '')
+            raw_qual_objs = clean_raw_wl(props.get('QualifyingObjects', '') or props.get('Arguments', ''))
+            raw_notation = clean_raw_wl(props.get('Notation', ''))
+            raw_restrictions = clean_raw_wl(props.get('Restrictions', ''))
+            raw_statement = clean_raw_wl(props.get('Statement', '') or props.get('Output', '') or props.get('Expression', ''))
 
             # Extract relationships cleanly via structural Wolfram AST list parsing
             rc_list = parse_wl_list(props.get('RelatedConcepts', ''))
