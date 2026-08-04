@@ -71,9 +71,12 @@ export default function SummaryGridTable({ entity }) {
 
     if (row.type === 'math' || row.type === 'math_multi' || row.type === 'math_flow') {
       if (!row.value) return <span className="text-slate-400 italic text-sm">None</span>;
+      const flowTokens = row.type === 'math_flow' && entity.statement_tokens
+        ? (typeof entity.statement_tokens === 'string' ? JSON.parse(entity.statement_tokens) : entity.statement_tokens)
+        : null;
       return (
         <div className="py-0.5">
-          <MathRenderer math={row.value} inline={row.type !== 'math_flow'} flow={row.type === 'math_flow'} />
+          <MathRenderer math={row.value} inline={row.type !== 'math_flow'} flow={row.type === 'math_flow'} tokens={flowTokens} />
           {showRaw && row.rawValue && (
             <div className="mt-2.5 p-2.5 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl overflow-x-auto border border-slate-700 shadow-inner">
               <div className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-wider">Original Wolfram Syntax</div>
