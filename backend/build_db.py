@@ -372,12 +372,25 @@ def ast_to_latex(node):
                 styles = {a[1] for a in args[1:] if isinstance(a, tuple) and a[0] == 'SYM'}
                 bold = 'Bold' in styles
                 italic = 'Italic' in styles
-                if bold and italic:
-                    return f'\\textbf{{\\textit{{{inner}}}}}'
+                # Preserve the math/text distinction: \textbf/\textit are text-mode
+                # styling; mathematical content gets \mathbf/\boldsymbol/\mathit so
+                # MathJax treats it as bold math, not bold text.
+                is_text = inner.startswith('\\text{') and inner.endswith('}')
+                if is_text:
+                    if bold and italic:
+                        return f'\\textbf{{\\textit{{{inner}}}}}'
+                    if bold:
+                        return f'\\textbf{{{inner}}}'
+                    if italic:
+                        return f'\\textit{{{inner}}}'
+                    return inner
                 if bold:
-                    return f'\\textbf{{{inner}}}'
+                    # \mathbf for plain identifiers, \boldsymbol for general math
+                    if re.fullmatch(r'[A-Za-z]', inner):
+                        return f'\\mathbf{{{inner}}}'
+                    return f'\\boldsymbol{{{inner}}}'
                 if italic:
-                    return f'\\textit{{{inner}}}'
+                    return f'\\mathit{{{inner}}}'
                 return inner
             if clean_head in ('FormBox', 'TagBox', 'InterpretationBox', 'HoldForm'):
                 return ast_to_latex(args[0])
