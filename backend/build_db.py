@@ -5,6 +5,7 @@ import sqlite3
 
 WL_PATH = os.path.join(os.path.dirname(__file__), '..', 'General-Topology-EntityStore.wl')
 DB_PATH = os.path.join(os.path.dirname(__file__), 'topology.db')
+TEMP_DB_PATH = os.path.join(os.path.dirname(__file__), 'topology.tmp.db')
 
 UNICODE_MAP = {
     '': '\\mathcal{X}',
@@ -556,166 +557,183 @@ def build_db():
         entity_type_map[name] = "theorem"
     valid_entity_ids = set(entity_type_map.keys())
 
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+    if os.path.exists(TEMP_DB_PATH):
+        os.remove(TEMP_DB_PATH)
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA foreign_keys = ON")
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE entities (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL,
-        label TEXT,
-        alternate_names TEXT,
-        qualifying_objects TEXT,
-        raw_qualifying_objects TEXT,
-        notation TEXT,
-        raw_notation TEXT,
-        restrictions TEXT,
-        raw_restrictions TEXT,
-        statement TEXT,
-        raw_statement TEXT,
-        references_text TEXT,
-        raw_rows TEXT NOT NULL
-    );
-    """)
-
-    cur.execute("""
-    CREATE TABLE relationships (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source_id TEXT NOT NULL,
-        source_type TEXT NOT NULL,
-        target_id TEXT NOT NULL,
-        target_type TEXT NOT NULL,
-        rel_type TEXT NOT NULL,
-        FOREIGN KEY (source_id) REFERENCES entities(id),
-        FOREIGN KEY (target_id) REFERENCES entities(id)
-    );
-    """)
-
-    cur.execute("CREATE INDEX idx_rel_source ON relationships(source_id);")
-    cur.execute("CREATE INDEX idx_rel_target ON relationships(target_id);")
-    cur.execute("CREATE INDEX idx_rel_source_target ON relationships(source_id, target_id);")
-    cur.execute("CREATE INDEX idx_ent_type ON entities(type);")
-    cur.execute("CREATE INDEX idx_ent_label ON entities(label);")
-
-    all_relationships_to_insert = []
-
-    def insert_entity(name, ent_type, body_text):
-        global CURRENT_ENTITY
-        CURRENT_ENTITY = name
-        props = dict(get_top_level_entries(body_text))
-        sg_text = props.get('SummaryGrid', '')
-        rows = parse_summary_grid(sg_text)
-        row_dict = {}
-        for h, v in rows:
-            clean_h = h.strip('"').strip()
-            row_dict[clean_h] = v
-
-        label = row_dict.get('Label', '')
-        def clean_text_wrapper(s):
-            if s.startswith('\\text{') and s.endswith('}'):
-                return s[6:-1]
-            return s
-
-        label_clean = clean_text_wrapper(label)
-        if not label_clean and '"Label"' in props:
-            label_clean = props['"Label"'].strip('"')
-
-        alt_names = row_dict.get('AlternateNames', '')
-        qual_objs = row_dict.get('QualifyingObjects', '') or row_dict.get('Arguments', '')
-        notation = row_dict.get('Notation', '')
-        restrictions = row_dict.get('Restrictions', '')
-        statement = row_dict.get('Statement', '') or row_dict.get('Output', '') or row_dict.get('Expression', '')
-        refs = row_dict.get('References', '')
-
-        # Also capture raw Wolfram expressions alongside generated LaTeX!
-        raw_qual_objs = props.get('"QualifyingObjects"', '') or props.get('"Arguments"', '')
-        raw_notation = props.get('"Notation"', '')
-        raw_restrictions = props.get('"Restrictions"', '')
-        raw_statement = props.get('"Statement"', '') or props.get('"Output"', '') or props.get('"Expression"', '')
-
-        # Extract relationships cleanly via structural Wolfram AST list parsing
-        rc_list = parse_wl_list(props.get('RelatedConcepts', ''))
-        rt_list = parse_wl_list(props.get('RelatedTheorems', ''))
+    try:
+        conn = sqlite3.connect(TEMP_DB_PATH)
+        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.cursor()
 
         cur.execute("""
-        INSERT INTO entities (
-            id, type, label, alternate_names,
-            qualifying_objects, raw_qualifying_objects,
-            notation, raw_notation,
-            restrictions, raw_restrictions,
-            statement, raw_statement,
-            references_text, raw_rows
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            name,
-            ent_type,
-            label_clean,
-            alt_names,
-            qual_objs,
-            raw_qual_objs,
-            notation,
-            raw_notation,
-            restrictions,
-            raw_restrictions,
-            statement,
-            raw_statement,
-            refs,
-            json.dumps(rows)
-        ))
+        CREATE TABLE entities (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            label TEXT,
+            alternate_names TEXT,
+            qualifying_objects TEXT,
+            raw_qualifying_objects TEXT,
+            notation TEXT,
+            raw_notation TEXT,
+            restrictions TEXT,
+            raw_restrictions TEXT,
+            statement TEXT,
+            raw_statement TEXT,
+            references_text TEXT,
+            raw_rows TEXT NOT NULL
+        );
+        """)
 
-        all_relationships_to_insert.append((name, ent_type, rc_list, 'RelatedConcepts'))
-        all_relationships_to_insert.append((name, ent_type, rt_list, 'RelatedTheorems'))
+        cur.execute("""
+        CREATE TABLE relationships (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            rel_type TEXT NOT NULL,
+            FOREIGN KEY (source_id) REFERENCES entities(id),
+            FOREIGN KEY (target_id) REFERENCES entities(id)
+        );
+        """)
 
-    print("Inserting concepts...")
-    for name, body in c_entries:
-        insert_entity(name, "concept", body)
+        cur.execute("CREATE INDEX idx_rel_source ON relationships(source_id);")
+        cur.execute("CREATE INDEX idx_rel_target ON relationships(target_id);")
+        cur.execute("CREATE INDEX idx_rel_source_target ON relationships(source_id, target_id);")
+        cur.execute("CREATE INDEX idx_ent_type ON entities(type);")
+        cur.execute("CREATE INDEX idx_ent_label ON entities(label);")
 
-    print("Inserting theorems...")
-    for name, body in t_entries:
-        insert_entity(name, "theorem", body)
+        all_relationships_to_insert = []
 
-    print("Inserting relationships with foreign-key validation...")
-    for source_id, source_type, target_ids, rel_type in all_relationships_to_insert:
-        for tid in target_ids:
-            if not tid or tid == source_id:
-                continue
-            if tid not in valid_entity_ids:
-                WARNINGS.append(f"Entity [{source_id}]: Ignored target '{tid}' in '{rel_type}' because it is not a valid concept or theorem ID.")
-                continue
-            ttype = entity_type_map[tid]
+        def insert_entity(name, ent_type, body_text):
+            global CURRENT_ENTITY
+            CURRENT_ENTITY = name
+            props = dict(get_top_level_entries(body_text))
+            sg_text = props.get('SummaryGrid', '')
+            rows = parse_summary_grid(sg_text)
+            row_dict = {}
+            for h, v in rows:
+                clean_h = h.strip('"').strip()
+                row_dict[clean_h] = v
+
+            label = row_dict.get('Label', '')
+            def clean_text_wrapper(s):
+                if s.startswith('\\text{') and s.endswith('}'):
+                    return s[6:-1]
+                return s
+
+            label_clean = clean_text_wrapper(label)
+            if not label_clean and '"Label"' in props:
+                label_clean = props['"Label"'].strip('"')
+
+            alt_names = row_dict.get('AlternateNames', '')
+            qual_objs = row_dict.get('QualifyingObjects', '') or row_dict.get('Arguments', '')
+            notation = row_dict.get('Notation', '')
+            restrictions = row_dict.get('Restrictions', '')
+            statement = row_dict.get('Statement', '') or row_dict.get('Output', '') or row_dict.get('Expression', '')
+            refs = row_dict.get('References', '')
+
+            # Also capture raw Wolfram expressions alongside generated LaTeX!
+            raw_qual_objs = props.get('"QualifyingObjects"', '') or props.get('"Arguments"', '')
+            raw_notation = props.get('"Notation"', '')
+            raw_restrictions = props.get('"Restrictions"', '')
+            raw_statement = props.get('"Statement"', '') or props.get('"Output"', '') or props.get('"Expression"', '')
+
+            # Extract relationships cleanly via structural Wolfram AST list parsing
+            rc_list = parse_wl_list(props.get('RelatedConcepts', ''))
+            rt_list = parse_wl_list(props.get('RelatedTheorems', ''))
+
             cur.execute("""
-            INSERT INTO relationships (source_id, source_type, target_id, target_type, rel_type)
-            VALUES (?, ?, ?, ?, ?)
-            """, (source_id, source_type, tid, ttype, rel_type))
+            INSERT INTO entities (
+                id, type, label, alternate_names,
+                qualifying_objects, raw_qualifying_objects,
+                notation, raw_notation,
+                restrictions, raw_restrictions,
+                statement, raw_statement,
+                references_text, raw_rows
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                name,
+                ent_type,
+                label_clean,
+                alt_names,
+                qual_objs,
+                raw_qual_objs,
+                notation,
+                raw_notation,
+                restrictions,
+                raw_restrictions,
+                statement,
+                raw_statement,
+                refs,
+                json.dumps(rows)
+            ))
 
-    conn.commit()
+            all_relationships_to_insert.append((name, ent_type, rc_list, 'RelatedConcepts'))
+            all_relationships_to_insert.append((name, ent_type, rt_list, 'RelatedTheorems'))
 
-    cur.execute("SELECT count(*) FROM entities WHERE type='concept'")
-    c_cnt = cur.fetchone()[0]
-    cur.execute("SELECT count(*) FROM entities WHERE type='theorem'")
-    t_cnt = cur.fetchone()[0]
-    cur.execute("SELECT count(*) FROM relationships")
-    r_cnt = cur.fetchone()[0]
+        print("Inserting concepts...")
+        for name, body in c_entries:
+            insert_entity(name, "concept", body)
 
-    print(f"Database build complete! {DB_PATH}")
-    print(f"Concepts inserted: {c_cnt}")
-    print(f"Theorems inserted: {t_cnt}")
-    print(f"Relationships inserted: {r_cnt}")
-    if WARNINGS:
-        print(f"\n[PARSER AUDIT] {len(WARNINGS)} warnings emitted during AST conversion:")
-        for w in WARNINGS[:10]:
-            print("  -", w)
-        if len(WARNINGS) > 10:
-            print(f"  ... and {len(WARNINGS)-10} more warnings.")
-    else:
-        print("\n[PARSER AUDIT] 0 warnings emitted! All 441 entity box expressions matched known supported constructs.")
+        print("Inserting theorems...")
+        for name, body in t_entries:
+            insert_entity(name, "theorem", body)
 
-    conn.close()
+        print("Inserting relationships with foreign-key validation...")
+        for source_id, source_type, target_ids, rel_type in all_relationships_to_insert:
+            for tid in target_ids:
+                if not tid or tid == source_id:
+                    continue
+                if tid not in valid_entity_ids:
+                    WARNINGS.append(f"Entity [{source_id}]: Ignored target '{tid}' in '{rel_type}' because it is not a valid concept or theorem ID.")
+                    continue
+                ttype = entity_type_map[tid]
+                cur.execute("""
+                INSERT INTO relationships (source_id, source_type, target_id, target_type, rel_type)
+                VALUES (?, ?, ?, ?, ?)
+                """, (source_id, source_type, tid, ttype, rel_type))
+
+        conn.commit()
+
+        cur.execute("SELECT count(*) FROM entities WHERE type='concept'")
+        c_cnt = cur.fetchone()[0]
+        cur.execute("SELECT count(*) FROM entities WHERE type='theorem'")
+        t_cnt = cur.fetchone()[0]
+        cur.execute("SELECT count(*) FROM relationships")
+        r_cnt = cur.fetchone()[0]
+
+        print(f"Database build complete! {DB_PATH}")
+        print(f"Concepts inserted: {c_cnt}")
+        print(f"Theorems inserted: {t_cnt}")
+        print(f"Relationships inserted: {r_cnt}")
+        if WARNINGS:
+            print(f"\n[PARSER AUDIT] {len(WARNINGS)} warnings emitted during AST conversion:")
+            for w in WARNINGS[:10]:
+                print("  -", w)
+            if len(WARNINGS) > 10:
+                print(f"  ... and {len(WARNINGS)-10} more warnings.")
+        else:
+            print("\n[PARSER AUDIT] 0 warnings emitted! All 441 entity box expressions matched known supported constructs.")
+
+        conn.close()
+
+        if c_cnt == 0 or t_cnt == 0:
+            raise RuntimeError(f"Database build validation failed: concept_count={c_cnt}, theorem_count={t_cnt}. Aborting atomic replacement.")
+
+        # Atomically replace production database topology.db with validated topology.tmp.db
+        os.replace(TEMP_DB_PATH, DB_PATH)
+
+    except Exception as e:
+        if 'conn' in locals():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        if os.path.exists(TEMP_DB_PATH):
+            os.remove(TEMP_DB_PATH)
+        raise e
 
 if __name__ == "__main__":
     build_db()

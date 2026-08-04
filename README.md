@@ -13,6 +13,7 @@ An interactive topological knowledge graph, textbook explorer, and canonical pro
 - **Relational & Graph SQLite Database (`backend/topology.db`):**
   - **`entities` Table:** Stores normalized fields including canonical ID, type (`concept` or `theorem`), friendly label, alternate names, qualifying objects, notation, restrictions, statement formula, references, and complete JSON summary grid rows.
   - **`relationships` Table:** Stores 1,659 directional relationships (`source_id`, `source_type`, `target_id`, `target_type`, `rel_type`) mapping connections between Concepts-to-Concepts, Theorems-to-Theorems, and Concepts-to-Theorems. Relationships are extracted structurally from the Wolfram Language AST (`RelatedConcepts` and `RelatedTheorems` `{...}` list expressions) without comma-splitting. Every relationship target is explicitly validated against known entity identifiers before insertion, with SQLite foreign-key enforcement (`PRAGMA foreign_keys = ON`) enabled across both database generation and API queries. Includes a composite index `idx_rel_source_target(source_id, target_id)` for scalable SQL `IN` query filtering.
+  - **Atomic Database Build:** Database regeneration builds into a temporary SQLite database (`topology.tmp.db`), validates entity row counts, and atomically replaces `topology.db` (`os.replace`), preventing partial or failed builds from corrupting production databases.
 
 ---
 
