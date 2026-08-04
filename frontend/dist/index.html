@@ -7,12 +7,13 @@
     <!-- MathJax 3 configuration -->
     <script>
       window.MathJax = {
+        loader: {load: ['[tex]/boldsymbol', '[tex]/textmacros']},
         tex: {
           inlineMath: [['$', '$'], ['\\(', '\\)']],
           displayMath: [['$$', '$$'], ['\\[', '\\]']],
           processEscapes: true,
           processEnvironments: true,
-          packages: {'[+]': ['noerrors', 'noundefined', 'boldsymbol']}
+          packages: {'[+]': ['noerrors', 'noundefined', 'boldsymbol', 'textmacros']}
         },
         options: {
           skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre'],
