@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased font-sans m-0 p-0;
+  }
+}
+
+/* Cytoscape container styling */
+.cytoscape-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* MathJax custom font and line styling */
+.mathjax-container {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+
+.mathjax-container mjx-container {
+  margin: 0 !important;
+}
+
+/* Munkres Summary Grid custom table borders */
+.summary-grid-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.summary-grid-table th,
+.summary-grid-table td {
+  border: 1px solid #cbd5e1;
+  padding: 0.75rem 1rem;
+  vertical-align: top;
+}
+
+.summary-grid-table th {
+  background-color: #fef9c3; /* pale yellow/cream matching reference style */
+  color: #334155;
+  font-weight: 600;
+  text-align: left;
+  width: 220px;
+  min-width: 180px;
+}
+
+.summary-grid-table td {
+  background-color: #ffffff;
+  color: #1e293b;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
