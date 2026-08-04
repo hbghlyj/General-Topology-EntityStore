@@ -20,7 +20,7 @@ UNICODE_MAP = {
     '': '\\mathcal{A}',
     '': '\\mathcal{C}',
     '': '\\mathcal{P}',
-    '': '\\infty',
+    '': '\\mathbb{R}',
     '': '\\mathbb{R}',
     '': '\\mathcal{B}',
     '': '\\mathbb{Z}',
@@ -342,7 +342,12 @@ def ast_to_latex(node):
             val = node[1].replace('\\"', '').strip('"')
             for k, v in UNICODE_MAP.items():
                 val = val.replace(k, v)
+            val = re.sub(r'[\u2009\u200A\u2002\u2003\u205F]', ' ', val)
             if ' ' in val or any(w in val for w in [' is ', ' the ', ' an ', ' of ', ' on ', ' in ']):
+                return f'\\text{{{val}}}'
+            # multi-letter words ("Hom", "Top", "and", "el", ...) are upright text,
+            # not products of italic variables; single letters stay math italic
+            if len(val) > 1 and re.fullmatch(r"[A-Za-z][A-Za-z'’-]*", val):
                 return f'\\text{{{val}}}'
             return val
         elif ntype == 'SYM':
@@ -363,7 +368,32 @@ def ast_to_latex(node):
             if clean_head not in KNOWN_HEADS and not (len(clean_head) <= 3 and clean_head.isalnum()):
                 WARNINGS.append(f"Entity [{CURRENT_ENTITY}]: Unsupported or unknown box/call construct '{clean_head}' encountered.")
 
-            if clean_head in ('FormBox', 'TagBox', 'InterpretationBox', 'StyleBox', 'HoldForm'):
+            if clean_head == 'StyleBox':
+                inner = ast_to_latex(args[0])
+                styles = {a[1] for a in args[1:] if isinstance(a, tuple) and a[0] == 'SYM'}
+                bold = 'Bold' in styles
+                italic = 'Italic' in styles
+                # Preserve the math/text distinction: \textbf/\textit are text-mode
+                # styling; mathematical content gets \mathbf/\boldsymbol/\mathit so
+                # MathJax treats it as bold math, not bold text.
+                is_text = inner.startswith('\\text{') and inner.endswith('}')
+                if is_text:
+                    if bold and italic:
+                        return f'\\textbf{{\\textit{{{inner}}}}}'
+                    if bold:
+                        return f'\\textbf{{{inner}}}'
+                    if italic:
+                        return f'\\textit{{{inner}}}'
+                    return inner
+                if bold:
+                    # \mathbf for plain identifiers, \boldsymbol for general math
+                    if re.fullmatch(r'[A-Za-z]', inner):
+                        return f'\\mathbf{{{inner}}}'
+                    return f'\\boldsymbol{{{inner}}}'
+                if italic:
+                    return f'\\mathit{{{inner}}}'
+                return inner
+            if clean_head in ('FormBox', 'TagBox', 'InterpretationBox', 'HoldForm'):
                 return ast_to_latex(args[0])
             elif clean_head == 'RowBox':
                 if args and args[0][0] == 'LIST':
@@ -481,6 +511,238 @@ def ast_to_latex(node):
             return f'{ast_to_latex(node[2])}{node[1]}'
     return str(node)
 
+# ---------------------------------------------------------------------------
+# Flow segmentation: emit explicit prose/math/space token structure so the
+# frontend rendering layer never has to guess mathematical semantics.
+#
+# Token schema (per statement): a JSON list of *lines*, each line a list of:
+#   {"t": "text",  "v": str}   wrappable prose (from string boxes)
+#   {"t": "math",  "v": str}   atomic inline-math chunk (LaTeX)
+#   {"t": "space", "thin": bool} explicit wrappable separator
+# ---------------------------------------------------------------------------
+
+REL_OPS = {
+    '\\iff', '\\implies', '\\impliedby', '\\subseteq', '\\supseteq', '\\in',
+    '\\ni', '\\equiv', '\\leq', '\\geq', '\\neq', '\\prec', '\\succ', '\\to',
+    '\\longrightarrow', '\\mapsto', '\\longmapsto', '\\rightarrow',
+    '\\leftarrow', '\\land', '\\lor', '=', '<', '>', '\\le', '\\ge', '\\ne',
+}
+
+def _str_val(node):
+    val = node[1].replace('\\"', '').strip('"')
+    for k, v in UNICODE_MAP.items():
+        val = val.replace(k, v)
+    return re.sub(r'[\u2009\u200A\u2002\u2003\u205F]', ' ', val)
+
+def _call_head(node):
+    head_val = node[1][1] if node[1][0] == 'SYM' else ''
+    return head_val.split('`')[-1] if head_val.startswith('GeneralTopology`') else head_val
+
+def _container_items(node):
+    args = node[2]
+    if args and isinstance(args[0], tuple) and args[0][0] == 'LIST':
+        return args[0][1]
+    return list(args)
+
+def _first_str(node):
+    if not isinstance(node, tuple):
+        return None
+    if node[0] == 'STR':
+        return _str_val(node)
+    if node[0] == 'CALL':
+        items = _container_items(node)
+        return _first_str(items[0]) if items else None
+    return None
+
+def _last_str(node):
+    if not isinstance(node, tuple):
+        return None
+    if node[0] == 'STR':
+        return _str_val(node)
+    if node[0] == 'CALL':
+        items = _container_items(node)
+        return _last_str(items[-1]) if items else None
+    return None
+
+def _is_paren_group(node):
+    first, last = _first_str(node), _last_str(node)
+    return (first == '(' and last == ')') or (first == '{' and last == '}')
+
+def ast_to_flow(node):
+    """Convert a TraditionalForm box AST into explicit flow token lines."""
+    lines = []
+    cur = []
+
+    def push_line():
+        nonlocal cur
+        if cur:
+            lines.append(cur)
+        cur = []
+
+    def add_space(thin=False):
+        if cur and cur[-1]['t'] != 'space':
+            cur.append({'t': 'space', 'thin': thin})
+
+    def add_math(latex):
+        if not latex.strip():
+            return
+        # A dangling sub/superscript (source artifacts like "d \\to _{A×A}")
+        # is glued onto the preceding math chunk — structural, not guessed.
+        if latex[:1] in ('_', '^'):
+            while cur and cur[-1]['t'] == 'space':
+                cur.pop()
+            if cur and cur[-1]['t'] == 'math':
+                cur[-1]['v'] += latex
+                return
+        if cur and cur[-1]['t'] == 'math':
+            add_space(thin=cur[-1]['v'].strip() not in REL_OPS and latex.strip() not in REL_OPS)
+        elif cur and cur[-1]['t'] == 'text':
+            add_space()
+        cur.append({'t': 'math', 'v': latex})
+
+    def add_text(val):
+        if not val.strip():
+            return
+        if cur and cur[-1]['t'] in ('math', 'text'):
+            add_space()
+        cur.append({'t': 'text', 'v': val})
+
+    def emit(n):
+        if not n:
+            return
+        if isinstance(n, tuple):
+            ntype = n[0]
+            if ntype == 'STR':
+                val = _str_val(n)
+                if ' ' in val:
+                    add_text(val)          # prose run
+                else:
+                    add_math(ast_to_latex(n))  # identifier / upright operator name
+                return
+            if ntype == 'SYM':
+                add_math(ast_to_latex(n))
+                return
+            if ntype == 'LIST':
+                for x in n[1]:
+                    emit(x)
+                return
+            if ntype == 'INFIX':
+                emit(n[2])
+                op_str = n[1]
+                op_latex = UNICODE_MAP.get(op_str)
+                if op_latex is None:
+                    op_latex = {
+                        '&&': '\\land', '||': '\\lor', '==': '=', '!=': '\\neq',
+                        '<=': '\\le', '>=': '\\ge', '∖': '\\setminus',
+                        '∪': '\\cup', '∩': '\\cap', '×': '\\times',
+                        '≺': '\\prec', '≠': '\\neq',
+                    }.get(op_str, op_str)
+                add_math(op_latex)
+                emit(n[3])
+                return
+            if ntype == 'POSTFIX':
+                add_math(ast_to_latex(n))
+                return
+            # CALL nodes
+            head = _call_head(n)
+            args = n[2]
+            if head == 'StyleBox':
+                inner = args[0]
+                styles = {a[1] for a in args[1:] if isinstance(a, tuple) and a[0] == 'SYM'}
+                bold = 'Bold' in styles
+                italic = 'Italic' in styles
+                if not (bold or italic):
+                    emit(inner)
+                    return
+                if isinstance(inner, tuple) and inner[0] == 'STR' and ' ' in _str_val(inner):
+                    add_text(_str_val(inner))  # styled prose stays prose
+                    return
+                latex = ast_to_latex(inner)
+                if latex.startswith('\\text{'):
+                    if bold and italic:
+                        latex = f'\\textbf{{\\textit{{{latex}}}}}'
+                    elif bold:
+                        latex = f'\\textbf{{{latex}}}'
+                    elif italic:
+                        latex = f'\\textit{{{latex}}}'
+                else:
+                    if bold:
+                        latex = f'\\mathbf{{{latex}}}' if re.fullmatch(r'[A-Za-z]', latex) else f'\\boldsymbol{{{latex}}}'
+                    elif italic:
+                        latex = f'\\mathit{{{latex}}}'
+                add_math(latex)
+                return
+            if head in ('FormBox', 'TagBox', 'InterpretationBox', 'HoldForm'):
+                emit(args[0])
+                return
+            if head == 'GridBox':
+                if args and args[0][0] == 'LIST':
+                    for r in args[0][1]:
+                        for c in (r[1] if isinstance(r, tuple) and r[0] == 'LIST' else [r]):
+                            emit(c)
+                        push_line()
+                return
+            if head == 'Infix':
+                if len(args) >= 2 and args[0][0] == 'LIST':
+                    sep = ast_to_latex(args[1]).strip()
+                    items = args[0][1]
+                    for idx, x in enumerate(items):
+                        if idx > 0:
+                            add_math(sep)
+                        emit(x)
+                    return
+            if head == 'TemplateBox' and len(args) >= 2 and args[1] == ('STR', '"RowWithSeparators"'):
+                items = _container_items(n)
+                for idx, x in enumerate(items[2:]):
+                    if idx > 0:
+                        add_math(',')
+                    emit(x)
+                return
+            if head in ('RowBox', 'TemplateBox') and not _is_paren_group(n):
+                # Buffer flat "( ... )" / "{ ... }" child runs (incl. nesting)
+                # into single atomic math chunks so delimiters never dangle
+                # across wrap points.
+                openers = []
+                buf = []
+
+                def flush_buf():
+                    nonlocal buf
+                    add_math(' '.join(ast_to_latex(b) for b in buf))
+                    buf = []
+
+                for x in _container_items(n):
+                    sv = _str_val(x).strip() if isinstance(x, tuple) and x[0] == 'STR' else ''
+                    if openers:
+                        buf.append(x)
+                        if sv in ('(', '{'):
+                            openers.append(sv)
+                        elif sv == ')' and openers[-1] == '(':
+                            openers.pop()
+                            if not openers:
+                                flush_buf()
+                        elif sv == '}' and openers[-1] == '{':
+                            openers.pop()
+                            if not openers:
+                                flush_buf()
+                        continue
+                    if sv in ('(', '{'):
+                        openers = [sv]
+                        buf = [x]
+                        continue
+                    emit(x)
+                for x in buf:  # unbalanced fallback: emit normally
+                    emit(x)
+                return
+            # SubscriptBox/SuperscriptBox/FractionBox/paren groups/... are
+            # atomic math chunks
+            add_math(ast_to_latex(n))
+            return
+        add_math(ast_to_latex(n))
+
+    emit(node)
+    push_line()
+    return [line for line in lines if line]
+
 def parse_summary_grid(sg_text):
     p = Parser(tokenize_wl(sg_text))
     ast = p.parse_expr()
@@ -501,12 +763,19 @@ def parse_summary_grid(sg_text):
     if not grid_node:
         return []
     rows = grid_node[2][0][1]
+
+    def unwrap_text(s):
+        s = s.strip()
+        if s.startswith('\\text{') and s.endswith('}'):
+            return s[6:-1]
+        return s
+
     res_rows = []
     for row in rows:
         cells = row[1]
-        header = ast_to_latex(cells[0])
+        header = unwrap_text(ast_to_latex(cells[0]))
         val = ast_to_latex(cells[1])
-        res_rows.append((header, val))
+        res_rows.append((header, val, cells[1]))
     return res_rows
 
 def parse_wl_list(wl_str):
@@ -592,6 +861,7 @@ def build_db():
             statement TEXT,
             raw_statement TEXT,
             references_text TEXT,
+            statement_tokens TEXT NOT NULL DEFAULT '[]',
             raw_rows TEXT NOT NULL
         );
         """)
@@ -624,9 +894,11 @@ def build_db():
             sg_text = props.get('SummaryGrid', '')
             rows = parse_summary_grid(sg_text)
             row_dict = {}
-            for h, v in rows:
+            row_nodes = {}
+            for h, v, cell_node in rows:
                 clean_h = h.strip('"').strip()
                 row_dict[clean_h] = v
+                row_nodes[clean_h] = cell_node
 
             label = row_dict.get('Label', '')
             def clean_text_wrapper(s):
@@ -645,6 +917,12 @@ def build_db():
             statement = row_dict.get('Statement', '') or row_dict.get('Output', '') or row_dict.get('Expression', '')
             refs = row_dict.get('References', '')
 
+            # Explicit prose/math token structure for flowing statement layout;
+            # the frontend only lays these tokens out (no semantic guessing).
+            statement_key = 'Statement' if row_dict.get('Statement') else ('Output' if row_dict.get('Output') else 'Expression')
+            statement_node = row_nodes.get(statement_key)
+            statement_tokens = json.dumps(ast_to_flow(statement_node)) if statement_node else '[]'
+
             # Also capture raw Wolfram expressions alongside generated LaTeX!
             raw_qual_objs = clean_raw_wl(props.get('QualifyingObjects', '') or props.get('Arguments', ''))
             raw_notation = clean_raw_wl(props.get('Notation', ''))
@@ -662,9 +940,9 @@ def build_db():
                 notation, raw_notation,
                 restrictions, raw_restrictions,
                 statement, raw_statement,
-                references_text, raw_rows
+                references_text, statement_tokens, raw_rows
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 name,
                 ent_type,
@@ -679,7 +957,8 @@ def build_db():
                 statement,
                 raw_statement,
                 refs,
-                json.dumps(rows)
+                statement_tokens,
+                json.dumps([[h, v] for h, v, _ in rows])
             ))
 
             all_relationships_to_insert.append((name, ent_type, rc_list, 'RelatedConcepts'))

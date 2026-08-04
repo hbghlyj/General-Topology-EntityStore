@@ -30,7 +30,7 @@ export default function SummaryGridTable({ entity }) {
         { header: 'QualifyingObjects', value: getRowValue(['QualifyingObjects', 'Arguments']), rawValue: entity.raw_qualifying_objects, type: 'math' },
         { header: 'Notation', value: getRowValue('Notation'), rawValue: entity.raw_notation, type: 'math' },
         { header: 'Restrictions', value: getRowValue('Restrictions'), rawValue: entity.raw_restrictions, type: 'math_multi' },
-        { header: 'Statement', value: getRowValue(['Statement', 'Output', 'Expression']), rawValue: entity.raw_statement, type: 'math_multi' },
+        { header: 'Statement', value: getRowValue(['Statement', 'Output', 'Expression']), rawValue: entity.raw_statement, type: 'math_flow' },
         { header: 'References', value: getRowValue('References'), type: 'references' },
         { header: 'RelatedConcepts', value: '', type: 'related' }
       ]
@@ -41,7 +41,7 @@ export default function SummaryGridTable({ entity }) {
         { header: 'Arguments', value: getRowValue(['Arguments', 'QualifyingObjects']), rawValue: entity.raw_qualifying_objects, type: 'math' },
         { header: 'Notation', value: getRowValue('Notation'), rawValue: entity.raw_notation, type: 'math' },
         { header: 'Restrictions', value: getRowValue('Restrictions'), rawValue: entity.raw_restrictions, type: 'math_multi' },
-        { header: 'Expression', value: getRowValue(['Expression', 'Output', 'Statement']), rawValue: entity.raw_statement, type: 'math_multi' },
+        { header: 'Expression', value: getRowValue(['Expression', 'Output', 'Statement']), rawValue: entity.raw_statement, type: 'math_flow' },
         { header: 'References', value: getRowValue('References'), type: 'references' },
         { header: 'RelatedConcepts', value: '', type: 'related' },
         { header: 'RelatedTheorems', value: '', type: 'related_theorems' }
@@ -69,11 +69,14 @@ export default function SummaryGridTable({ entity }) {
       );
     }
 
-    if (row.type === 'math' || row.type === 'math_multi') {
+    if (row.type === 'math' || row.type === 'math_multi' || row.type === 'math_flow') {
       if (!row.value) return <span className="text-slate-400 italic text-sm">None</span>;
+      const flowTokens = row.type === 'math_flow' && entity.statement_tokens
+        ? (typeof entity.statement_tokens === 'string' ? JSON.parse(entity.statement_tokens) : entity.statement_tokens)
+        : null;
       return (
         <div className="py-0.5">
-          <MathRenderer math={row.value} inline={true} />
+          <MathRenderer math={row.value} inline={row.type !== 'math_flow'} flow={row.type === 'math_flow'} tokens={flowTokens} />
           {showRaw && row.rawValue && (
             <div className="mt-2.5 p-2.5 bg-slate-900 text-emerald-400 font-mono text-xs rounded-xl overflow-x-auto border border-slate-700 shadow-inner">
               <div className="text-[10px] uppercase font-bold text-slate-400 mb-1 tracking-wider">Original Wolfram Syntax</div>
@@ -86,7 +89,12 @@ export default function SummaryGridTable({ entity }) {
 
     if (row.type === 'references') {
       if (!row.value) return <span className="text-slate-400 italic text-sm">None</span>;
-      const cleanRef = row.value.replace(/\\text\{([^}]*)\}/g, '$1').replace(/\$/g, '');
+      const cleanRef = row.value
+        .replace(/\\textbf\{\\textit\{([^}]*)\}\}/g, '$1')
+        .replace(/\\textit\{([^}]*)\}/g, '$1')
+        .replace(/\\textbf\{([^}]*)\}/g, '$1')
+        .replace(/\\text\{([^}]*)\}/g, '$1')
+        .replace(/\$/g, '');
       return (
         <div className="flex items-start space-x-2 text-sm text-slate-700 font-serif">
           <BookOpen className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
