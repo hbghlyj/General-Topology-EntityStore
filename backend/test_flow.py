@@ -94,6 +94,10 @@ class TestGrouping(unittest.TestCase):
 
 
 class TestBoldItalicMathVsText(unittest.TestCase):
+    def test_is_single_text_wrapper_helper(self):
+        self.assertTrue(bd.is_single_text_wrapper(r"\text{A{B}}"))
+        self.assertFalse(bd.is_single_text_wrapper(r"\text{A}\text{B}"))
+
     def test_bold_identifier_is_mathbf(self):
         lines = flow('StyleBox[x, Bold]')
         self.assertEqual(math_values(lines), ['\\mathbf{x}'])
@@ -105,11 +109,15 @@ class TestBoldItalicMathVsText(unittest.TestCase):
 
     def test_bold_text_is_textbf(self):
         lines = flow('StyleBox["\\"Top\\"", Bold]')
-        self.assertEqual(math_values(lines), ['\\textbf{\\text{Top}}'])
+        self.assertEqual(math_values(lines), ['\\textbf{Top}'])
+
+    def test_bold_rowbox_text_is_textbf(self):
+        lines = flow('StyleBox[RowBox[{"Topology"}], Bold]')
+        self.assertEqual(math_values(lines), ['\\textbf{Topology}'])
 
     def test_italic_text_is_textit(self):
         lines = flow('StyleBox["\\"Topology\\"", Italic]')
-        self.assertEqual(math_values(lines), ['\\textit{\\text{Topology}}'])
+        self.assertEqual(math_values(lines), ['\\textit{Topology}'])
 
 
 class TestStructuralGuarantees(unittest.TestCase):
@@ -172,7 +180,7 @@ class TestAscoliIntegration(unittest.TestCase):
         self.assertIn('( \\mathbb{R}^{n} \\text{, } d )', math_values(self.lines))
 
     def test_hom_subscript_atomic(self):
-        self.assertIn('\\text{Hom}_{\\textbf{\\text{Top}}}', math_values(self.lines))
+        self.assertIn('\\text{Hom}_{\\textbf{Top}}', math_values(self.lines))
 
     def test_bold_reals_is_math_bolding(self):
         vals = ' '.join(math_values(self.lines))

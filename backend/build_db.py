@@ -334,6 +334,19 @@ class Parser:
                 break
         return res
 
+def is_single_text_wrapper(s):
+    if not (s.startswith('\\text{') and s.endswith('}')):
+        return False
+    depth = 1
+    for c in s[6:-1]:
+        if c == '{':
+            depth += 1
+        elif c == '}':
+            depth -= 1
+            if depth == 0:
+                return False
+    return depth == 1
+
 def ast_to_latex(node):
     if not node: return ''
     if isinstance(node, tuple):
@@ -376,14 +389,14 @@ def ast_to_latex(node):
                 # Preserve the math/text distinction: \textbf/\textit are text-mode
                 # styling; mathematical content gets \mathbf/\boldsymbol/\mathit so
                 # MathJax treats it as bold math, not bold text.
-                is_text = inner.startswith('\\text{') and inner.endswith('}')
-                if is_text:
+                if is_single_text_wrapper(inner):
+                    text_body = inner[6:-1]
                     if bold and italic:
-                        return f'\\textbf{{\\textit{{{inner}}}}}'
+                        return f'\\textbf{{\\textit{{{text_body}}}}}'
                     if bold:
-                        return f'\\textbf{{{inner}}}'
+                        return f'\\textbf{{{text_body}}}'
                     if italic:
-                        return f'\\textit{{{inner}}}'
+                        return f'\\textit{{{text_body}}}'
                     return inner
                 if bold:
                     # \mathbf for plain identifiers, \boldsymbol for general math
@@ -658,13 +671,14 @@ def ast_to_flow(node):
                     add_text(_str_val(inner))  # styled prose stays prose
                     return
                 latex = ast_to_latex(inner)
-                if latex.startswith('\\text{'):
+                if is_single_text_wrapper(latex):
+                    text_body = latex[6:-1]
                     if bold and italic:
-                        latex = f'\\textbf{{\\textit{{{latex}}}}}'
+                        latex = f'\\textbf{{\\textit{{{text_body}}}}}'
                     elif bold:
-                        latex = f'\\textbf{{{latex}}}'
+                        latex = f'\\textbf{{{text_body}}}'
                     elif italic:
-                        latex = f'\\textit{{{latex}}}'
+                        latex = f'\\textit{{{text_body}}}'
                 else:
                     if bold:
                         latex = f'\\mathbf{{{latex}}}' if re.fullmatch(r'[A-Za-z]', latex) else f'\\boldsymbol{{{latex}}}'
