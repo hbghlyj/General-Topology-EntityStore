@@ -548,17 +548,19 @@ def build_db():
 
     print(f"Parsed {len(c_entries)} concepts and {len(t_entries)} theorems.")
 
-    # Build entity type map
+    # Build entity type map and set of valid entity identifiers
     entity_type_map = {}
     for name, _ in c_entries:
         entity_type_map[name] = "concept"
     for name, _ in t_entries:
         entity_type_map[name] = "theorem"
+    valid_entity_ids = set(entity_type_map.keys())
 
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
 
     conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA foreign_keys = ON")
     cur = conn.cursor()
 
     cur.execute("""
@@ -598,6 +600,8 @@ def build_db():
     cur.execute("CREATE INDEX idx_rel_source_target ON relationships(source_id, target_id);")
     cur.execute("CREATE INDEX idx_ent_type ON entities(type);")
     cur.execute("CREATE INDEX idx_ent_label ON entities(label);")
+
+    all_relationships_to_insert = []
 
     def insert_entity(name, ent_type, body_text):
         global CURRENT_ENTITY
@@ -664,17 +668,8 @@ def build_db():
             json.dumps(rows)
         ))
 
-        def add_rels_list(target_ids, rel_type):
-            for tid in target_ids:
-                if tid and tid != name:
-                    ttype = entity_type_map.get(tid, 'concept')
-                    cur.execute("""
-                    INSERT INTO relationships (source_id, source_type, target_id, target_type, rel_type)
-                    VALUES (?, ?, ?, ?, ?)
-                    """, (name, ent_type, tid, ttype, rel_type))
-
-        add_rels_list(rc_list, 'RelatedConcepts')
-        add_rels_list(rt_list, 'RelatedTheorems')
+        all_relationships_to_insert.append((name, ent_type, rc_list, 'RelatedConcepts'))
+        all_relationships_to_insert.append((name, ent_type, rt_list, 'RelatedTheorems'))
 
     print("Inserting concepts...")
     for name, body in c_entries:
@@ -683,6 +678,20 @@ def build_db():
     print("Inserting theorems...")
     for name, body in t_entries:
         insert_entity(name, "theorem", body)
+
+    print("Inserting relationships with foreign-key validation...")
+    for source_id, source_type, target_ids, rel_type in all_relationships_to_insert:
+        for tid in target_ids:
+            if not tid or tid == source_id:
+                continue
+            if tid not in valid_entity_ids:
+                WARNINGS.append(f"Entity [{source_id}]: Ignored target '{tid}' in '{rel_type}' because it is not a valid concept or theorem ID.")
+                continue
+            ttype = entity_type_map[tid]
+            cur.execute("""
+            INSERT INTO relationships (source_id, source_type, target_id, target_type, rel_type)
+            VALUES (?, ?, ?, ?, ?)
+            """, (source_id, source_type, tid, ttype, rel_type))
 
     conn.commit()
 
