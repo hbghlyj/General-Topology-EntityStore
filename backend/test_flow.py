@@ -71,15 +71,18 @@ class TestGrouping(unittest.TestCase):
         self.assertEqual(math_values(lines), ['( ( a ) ( b ) )'])
 
     def test_set_builder_braces_atomic(self):
-        # { f(a) | f ∈ F } with flat brace STR children
+        # { f(a) | f ∈ F } with flat brace STR children – visible braces must be escaped
         lines = flow('RowBox[{"{", "f", "(", "a", ")", "|", "f", "∈", "F", "}"}]')
         vals = math_values(lines)
         self.assertEqual(len(vals), 1)
-        self.assertTrue(vals[0].startswith('{') and vals[0].endswith('}'), vals)
+        # LaTeX visible braces are \{ \} so the chunk should start with \{ and end with \}
+        self.assertTrue(vals[0].startswith(r'\{') and vals[0].endswith(r'\}'), vals)
+        # pipe should be rendered as \mid (not raw \"|\" text) for proper math
+        self.assertIn(r'\mid', vals[0])
 
     def test_nested_braces_and_parens(self):
         lines = flow('RowBox[{"{", "(", "x", ")", "(", "y", ")", "}"}]')
-        self.assertEqual(math_values(lines), ['{ ( x ) ( y ) }'])
+        self.assertEqual(math_values(lines), [r'\{ ( x ) ( y ) \}'])
 
     def test_subsuperscript_structures_are_atomic(self):
         lines = flow('SuperscriptBox[RowBox[{"(", SuperscriptBox["R", "n"], ")"}], "X"]')
@@ -91,6 +94,72 @@ class TestGrouping(unittest.TestCase):
         vals = math_values(lines)
         self.assertTrue(vals[-1].endswith('_{A}'), vals)
         self.assertFalse(any(v[:1] in ('_', '^') for v in vals))
+
+    def test_set_builder_three_arg_element_preserves_bound_variable(self):
+        # Regression: 3-arg Element case must NOT drop the bound variable.
+        # Wolfram WL: SetBuilder[x, Element[x,A], P(x)] should be {x | x∈A and P}
+        # not {x∈A | P}.  This preserves mathematical meaning.
+        latex = bd.ast_to_latex(
+            bd.Parser(bd.tokenize_wl('SetBuilder[x, Element[x, A], P[x]]')).parse_expr()
+        )
+        self.assertTrue(latex.startswith(r'\{'), latex)
+        self.assertTrue(latex.endswith(r'\}'), latex)
+        self.assertIn(r'\mid', latex)
+        # bound variable x must still appear as element expression
+        self.assertIn('x', latex)
+        # membership and predicate both present and combined with "and"
+        self.assertIn(r'\in', latex)
+        self.assertIn('and', latex)
+        # Should be of form {x | x∈A and P} – element before \mid, not dropped
+        before_mid, after_mid = latex.split(r'\mid')
+        self.assertIn('x', before_mid)
+        self.assertIn(r'\in', after_mid)
+
+    def test_set_builder_direct_call(self):
+        # 2-arg case used in Ascoli notation
+        latex = bd.ast_to_latex(
+            bd.Parser(bd.tokenize_wl('SetBuilder[f[a], Element[f, F]]')).parse_expr()
+        )
+        self.assertEqual(latex, r'\{ f ( a ) \mid f \in F \}')
+
+    def test_class_builder_two_and_three_args(self):
+        # ClassBuilder[x, p] -> {x | p}
+        latex2 = bd.ast_to_latex(
+            bd.Parser(bd.tokenize_wl('ClassBuilder[x, P[x]]')).parse_expr()
+        )
+        self.assertEqual(latex2, r'\{ x \mid P ( x ) \}')
+        # ClassBuilder[x, e, p] -> {x | e and p}
+        latex3 = bd.ast_to_latex(
+            bd.Parser(bd.tokenize_wl('ClassBuilder[x, Element[x, A], Q[x]]')).parse_expr()
+        )
+        self.assertTrue(latex3.startswith(r'\{ x \mid'), latex3)
+        self.assertIn(r'\in', latex3)
+        self.assertIn('and', latex3)
+
+    def test_unknown_head_fallback_preserves_information(self):
+        # Generic CALL fallback should render as head(args) not silently drop head
+        latex = bd.ast_to_latex(
+            bd.Parser(bd.tokenize_wl('MyFunc[a, b]')).parse_expr()
+        )
+        # Should contain head and both args
+        self.assertIn('MyFunc', latex)
+        self.assertIn('a', latex)
+        self.assertIn('b', latex)
+        # Should be parenthesized form, not just "a b"
+        self.assertNotEqual(latex.strip(), 'a b')
+
+    def test_is_member_node_robustness_malformed(self):
+        # _is_member_node equivalent logic should not throw on malformed nodes.
+        # We test ast_to_latex with 3-arg SetBuilder where second arg is not a CALL
+        # but a plain SYM, ensuring fallback path works without exception.
+        try:
+            latex = bd.ast_to_latex(
+                bd.Parser(bd.tokenize_wl('SetBuilder[x, y, z]')).parse_expr()
+            )
+        except Exception as e:
+            self.fail(f'ast_to_latex raised on malformed second arg: {e}')
+        self.assertTrue(latex.startswith(r'\{'), latex)
+        self.assertIn(r'\mid', latex)
 
 
 class TestBoldItalicMathVsText(unittest.TestCase):

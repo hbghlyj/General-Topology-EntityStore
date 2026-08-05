@@ -70,7 +70,7 @@ KNOWN_HEADS = {
     # Standard math functions & operators
     'Abs', 'Sqrt', 'Min', 'Sum', 'SuperStar', 'Infix', 'Element', 'Exists', 'Function',
     # GeneralTopology operations
-    'Functions', 'Mapping', 'Ord', 'ProjectionMap', 'SetBuilder', 'SetDomain',
+    'Functions', 'Mapping', 'Ord', 'ProjectionMap', 'SetBuilder', 'ClassBuilder', 'SetDomain',
     'SetImage', 'SetMinus', 'SetPower', 'SetPreimage', 'SetProduct', 'SetRange',
     'SetUnion', 'Supremum', 'Tuple'
 }
@@ -398,6 +398,19 @@ def ast_to_latex(node):
             for k, v in UNICODE_MAP.items():
                 val = val.replace(k, v)
             val = re.sub(r'[\u2009\u200A\u2002\u2003\u205F]', ' ', val)
+            # Visible set braces must be escaped for LaTeX math mode; raw
+            # "{" / "}" are grouping delimiters and would disappear.
+            # WL box AST represents a visible "{" / "}" as a standalone STR.
+            stripped = val.strip()
+            if stripped == "{":
+                return r"\{"
+            if stripped == "}":
+                return r"\}"
+            # The row separator " | " used inside set-builder TemplateBox rows
+            # should become \mid for proper mathematical rendering; keep any
+            # hair-space handling as text fallback otherwise.
+            if stripped == "|" or stripped == "∣":
+                return r"\mid"
             if ' ' in val or any(w in val for w in [' is ', ' the ', ' an ', ' of ', ' on ', ' in ']):
                 return f'\\text{{{val}}}'
             # multi-letter words ("Hom", "Top", "and", "el", ...) are upright text,
@@ -544,7 +557,78 @@ def ast_to_latex(node):
                     return f"\\pi_{{{ast_to_latex(args[1])}}}({ast_to_latex(args[0])})"
             elif clean_head == 'Function':
                 return ''
-            return ' '.join(ast_to_latex(x) for x in args)
+            elif clean_head in ('SetBuilder', 'ClassBuilder'):
+                # --- Set-builder / class-builder with proper escaped braces ---
+                # Wolfram overloads (see TraditionalFormMakeBoxAssignments in .wl):
+                #   SetBuilder[L_List]                                  -> { L }
+                #   SetBuilder[x_, (r:Element|Subset..)[x,A], p_]      -> Row[{r | p}] in WL
+                #       – textbook notation should preserve bound variable: {x | r ∧ p}
+                #   SetBuilder[f_, {x__}, p_]                           -> { f | And[x,p] }
+                #   SetBuilder[f_, {x__}]                               -> { f | And[x] }
+                #   SetBuilder[f_, x_, p_]                              -> { f | And[x,p] }
+                #   SetBuilder[f_, x_]                                  -> { f | x }
+                #   ClassBuilder[x_, e_, p_]                            -> { x | e ∧ p }
+                #   ClassBuilder[x_, p_]                                -> { x | p }
+                # Preserve semantics: element expression is always args[0] for 3-arg forms.
+                def _is_member_node(n):
+                    # Safer shape checks – never throw, just return False on malformed nodes
+                    if (
+                        not isinstance(n, tuple)
+                        or len(n) < 3
+                        or n[0] != 'CALL'
+                        or not isinstance(n[1], tuple)
+                        or len(n[1]) < 2
+                    ):
+                        return False
+                    sym = n[1]
+                    if not isinstance(sym, tuple) or sym[0] != 'SYM':
+                        # head may be qualified GeneralTopology`Element etc – still tuple
+                        # but check inner
+                        return False
+                    hv = sym[1] if len(sym) > 1 and isinstance(sym[1], str) else ''
+                    ch = hv.split('`')[-1] if hv.startswith('GeneralTopology`') else hv
+                    return ch in ('Element', 'Subset', 'SubsetEqual', 'Superset', 'SupersetEqual')
+
+                if len(args) == 1:
+                    if args[0][0] == 'LIST':
+                        inner = ', '.join(ast_to_latex(x) for x in args[0][1])
+                        return f'\\{{ {inner} \\}}'
+                    else:
+                        inner = ast_to_latex(args[0])
+                        return f'\\{{ {inner} \\}}'
+                elif len(args) == 2:
+                    if args[1][0] == 'LIST':
+                        conds = ' \\text{ and } '.join(ast_to_latex(x) for x in args[1][1])
+                        return f'\\{{ {ast_to_latex(args[0])} \\mid {conds} \\}}'
+                    else:
+                        return f'\\{{ {ast_to_latex(args[0])} \\mid {ast_to_latex(args[1])} \\}}'
+                elif len(args) == 3:
+                    # Always preserve args[0] as element expression and combine the
+                    # two predicates with "and" – this matches textbook set-builder
+                    # {x | x∈A ∧ P(x)} rather than the WL shorthand {x∈A | P(x)} which
+                    # would drop the bound variable.
+                    if args[1][0] == 'LIST':
+                        list_part = ' \\text{ and } '.join(ast_to_latex(x) for x in args[1][1])
+                        if list_part:
+                            combined = f'{list_part} \\text{{ and }} {ast_to_latex(args[2])}'
+                        else:
+                            combined = ast_to_latex(args[2])
+                        return f'\\{{ {ast_to_latex(args[0])} \\mid {combined} \\}}'
+                    else:
+                        return f'\\{{ {ast_to_latex(args[0])} \\mid {ast_to_latex(args[1])} \\text{{ and }} {ast_to_latex(args[2])} \\}}'
+                # fallback – ensure braces are still emitted
+                joined = " ".join(ast_to_latex(x) for x in args)
+                return f'\\{{ {joined} \\}}'
+            # Generic fallback for unknown function-like heads (e.g., f[x], d[x,y])
+            # Render as head(args) rather than dropping the head entirely.
+            head_latex = ast_to_latex(node[1])
+            if args:
+                inner = ', '.join(ast_to_latex(x) for x in args)
+                # If head is empty (should not happen), just return inner
+                if head_latex:
+                    return f'{head_latex} ( {inner} )'
+                return inner
+            return head_latex
         elif ntype == 'INFIX':
             op_str = node[1]
             if op_str in UNICODE_MAP:
